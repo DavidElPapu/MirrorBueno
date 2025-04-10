@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using Mirror;
+using TMPro;
 
 /*
 	Documentation: https://mirror-networking.gitbook.io/docs/guides/networkbehaviour
@@ -9,14 +10,151 @@ using Mirror;
 
 public class LiarsBarPlayer : NetworkBehaviour
 {
+    //LiarsBarNetworkManager hostNetworkManager;
+    [SyncVar]
+    public bool isAlive;
+    [SyncVar] 
+    public bool hasNoCards;
+    //[SyncVar]
+    //public int cardIndex;
+
+    private GameObject[] playerCards = new GameObject[5];
+    [SyncVar]
+    private GameObject[] cardPrefabs = new GameObject[5];
+    [SyncVar]
+    private Transform[] playerCardSpawns = new Transform[5];
+
     private bool isTurn;
     private int bulletsLeft, currentSelectedCard;
-    private List<int> playerCards;
+    private int[] playerCardsIndex = new int[5];
     private int[] selectedCards = new int[5];
+
+    private int playerIndex;
 
     [SyncVar(hook = nameof(SetColor))]
     public Color color;
     public SpriteRenderer sr;
+
+
+    [ClientRpc]
+    public void OnGameStart(int newPlayerIndex)
+    {
+        if (!isLocalPlayer) return;
+        playerIndex = newPlayerIndex;
+        CommandSetIsAlive(true);
+        CommandSetHasNoCards(true);
+        isTurn = false;
+        bulletsLeft = 4;
+        currentSelectedCard = 0;
+        for (int i = 0; i < playerCardsIndex.Length; i++)
+        {
+            playerCards[i] = null;
+            playerCardsIndex[i] = -1;
+            selectedCards[i] = -1;
+        }
+        CommandPlayerIsReady();
+    }
+
+    [ClientRpc]
+    public void OnRoundReset()
+    {
+        if (!isLocalPlayer) return;
+        CommandSetHasNoCards(true);
+        isTurn = false;
+        currentSelectedCard = 0;
+        for (int i = 0; i < playerCardsIndex.Length; i++)
+        {
+            playerCards[i] = null;
+            playerCardsIndex[i] = -1;
+            selectedCards[i] = -1;
+        }
+        CommandPlayerIsReady();
+    }
+
+    [ClientRpc]
+    public void GetCard(int playerIndex, int cardType)
+    {
+        if (!isLocalPlayer) return;
+        for (int i = 0; i < playerCardsIndex.Length; i++)
+        {
+            if (playerCardsIndex[i] == -1)
+            {
+                playerCardsIndex[i] = cardType;
+                CommandSpawnCardsForPlayer(playerIndex, cardType, i);
+                if(i == 0)
+                {
+                    CommandSpawnSelectIconForPlayer(playerIndex);
+                }
+                //CommandSetPlayerCard(LiarsBarNetworkManager.singleton.cardPrefabs[cardType], LiarsBarNetworkManager.singleton.playerCardSpawns[i].position);
+                CommandSetHasNoCards(false);
+                return;
+            }
+        }
+    }
+
+    [ClientRpc]
+    public void GetShot()
+    {
+        if (!isLocalPlayer) return;
+        int shootChance = Random.Range(1, 101);
+        switch (bulletsLeft)
+        {
+            case 4:
+                if (shootChance <= 10)
+                    CommandSetIsAlive(false);
+                break;
+            case 3:
+                if (shootChance <= 20)
+                    CommandSetIsAlive(false);
+                break;
+            case 2:
+                if (shootChance <= 40)
+                    CommandSetIsAlive(false);
+                break;
+            case 1:
+                CommandSetIsAlive(false);
+                break;
+        }
+        bulletsLeft--;
+        if (isAlive)
+            print("Sobrevivi");
+    }
+
+    public bool SurvivedShoot()
+    {
+        bool response = true;
+        int shootChance = Random.Range(1, 101);
+        switch (bulletsLeft)
+        {
+            case 4:
+                if (shootChance <= 10)
+                    response = false;
+                break;
+            case 3:
+                if (shootChance <= 20)
+                    response = false;
+                break;
+            case 2:
+                if (shootChance <= 40)
+                    response = false;
+                break;
+            case 1:
+                response = false;
+                break;
+        }
+        bulletsLeft--;
+        if (!response)
+            isAlive = false;
+        return response;
+    }
+
+    [ClientRpc]
+    public void IsTurn()
+    {
+        if (!isLocalPlayer) return;
+        print("es mi turno");
+        isTurn = true;
+    }
 
     #region Unity Callbacks
 
@@ -35,6 +173,7 @@ public class LiarsBarPlayer : NetworkBehaviour
 
     void Start()
     {
+
     }
 
     private void Update()
@@ -47,32 +186,49 @@ public class LiarsBarPlayer : NetworkBehaviour
                 case 'a':
                     currentSelectedCard--;
                     if (currentSelectedCard < 0)
-                        currentSelectedCard = playerCards.Count - 1;
+                        currentSelectedCard = playerCardsIndex.Length - 1;
+                    CommandMoveSelectIcon(playerIndex, currentSelectedCard);
                     break;
                 case 'd':
                     currentSelectedCard++;
-                    if (currentSelectedCard >= playerCards.Count)
+                    if (currentSelectedCard >= playerCardsIndex.Length)
                         currentSelectedCard = 0;
+                    CommandMoveSelectIcon(playerIndex, currentSelectedCard);
                     break;
                 case 'f':
                     if (selectedCards[currentSelectedCard] == -1)
-                        selectedCards[currentSelectedCard] = playerCards[currentSelectedCard];
-                    else
-                        selectedCards[currentSelectedCard] = -1;
-                    break;
-                case 'g':
-                    for (int i = 0; i < selectedCards.Length; i++)
                     {
-                        if(selectedCards[i] != -1)
-                        {
-                            //enviar a la mesa
-                            playerCards.RemoveAt(i);
-                            selectedCards[i] = -1;
-                        }
+                        selectedCards[currentSelectedCard] = playerCardsIndex[currentSelectedCard];
+                        CommandHighlightCard(playerIndex, currentSelectedCard, true);
+                    }
+                    else
+                    {
+                        selectedCards[currentSelectedCard] = -1;
+                        CommandHighlightCard(playerIndex, currentSelectedCard, false);
                     }
                     break;
+                case 'g':
+                    CommandUpdateTable(playerIndex, selectedCards);
+                    CommandSetHasNoCards(true);
+                    for (int i = 0; i < playerCardsIndex.Length; i++)
+                    {
+                        if (selectedCards[i] != -1)
+                        {
+                            selectedCards[i] = -1;
+                            playerCardsIndex[i] = -1;
+                            playerCards[i] = null;
+                            CommandDeleteCard(playerIndex, i);
+                        }
+                        else if (playerCardsIndex[i] != -1)
+                        {
+                            CommandSetHasNoCards(false);
+                        }
+                    }
+                    isTurn = false;
+                    break;
                 case 'h':
-                    //call liar
+                    CommandCallLiar();
+                    isTurn = false;
                     break;
                 default:
                     //nada
@@ -81,35 +237,119 @@ public class LiarsBarPlayer : NetworkBehaviour
         }
     }
 
-    public void OnRoundStart(List<int> newPlayerCards)
+    [Command]
+    private void CommandSetIsAlive(bool newIsAlive)
     {
-        playerCards.Clear();
-        foreach (int card in newPlayerCards)
-        {
-            playerCards.Add(card);
-        }
-        for (int i = 0; i < selectedCards.Length; i++)
-        {
-            selectedCards[i] = -1;
-        }
-        currentSelectedCard = 0;
+        isAlive = newIsAlive;
+        if (!isAlive)
+            print("mori");
     }
 
     [Command]
-    private void CommandSendMessage(string msg)
+    private void CommandSetHasNoCards(bool newHasNoCards)
     {
-        //GameObject bub = Instantiate(bubblePrefab);
-        //NetworkServer.Spawn(bub);
-        //ClientSendMessage(msg, bub.GetComponent<Bubble>());
+        hasNoCards = newHasNoCards;
     }
-    [ClientRpc]
-    private void ClientSendMessage(string msg, Bubble bub)
-    {
 
-        //bub.GetComponent<Bubble>().InitializeBubble(msg, color);
+    [Command]
+    private void CommandSpawnCardsForPlayer(int newPlayerIndex, int newCardType, int newCardIndex)
+    {
+        LiarsBarNetworkManager.singleton.SpawnCardsForPlayer(newPlayerIndex, newCardType, newCardIndex);
+    }
+
+    [Command]
+    private void CommandSpawnSelectIconForPlayer(int newPlayerIndex)
+    {
+        LiarsBarNetworkManager.singleton.SpawnSelectIconForPlayers(newPlayerIndex);
+    }
+
+    [Command]
+    private void CommandPlayerIsReady()
+    {
+        LiarsBarNetworkManager.singleton.WaitForPlayers();
+    }
+
+    [ClientRpc]
+    public void TargetAllPlayerCard(GameObject card)
+    {
+        card.SetActive(false);//Aqui esta la logica para como se vera la carta privada en los otros clientes.
+    }
+
+    [TargetRpc]
+    public void TargetMePlayerCard(GameObject myCard)
+    {
+        myCard.SetActive(true);//Aqui cambias lo que editaste para otros clientes, ya sean imagenes, colores, o visibilidad.
+    }
+
+    [ClientRpc]
+    public void TargetAllPlayerSelectIcon(GameObject selectIcon)
+    {
+        selectIcon.SetActive(false);
+    }
+
+    [TargetRpc]
+    public void TargetMePlayerSelectIcon(GameObject mySelectIcon)
+    {
+        mySelectIcon.SetActive(true);
+    }
+
+    [Command]
+    private void CommandMoveSelectIcon(int newPlayerIndex, int newSelectIconPositionIndex)
+    {
+        LiarsBarNetworkManager.singleton.MoveSelectIconForPlayer(newPlayerIndex, newSelectIconPositionIndex);
+    }
+
+    [TargetRpc]
+    public void TargetMeMoveSelectIcon(GameObject mySelectIcon, Vector2 newSelectIconPosition)
+    {
+        mySelectIcon.transform.position = newSelectIconPosition;
+    }
+
+    [Command]
+    private void CommandHighlightCard(int newPlayerIndex, int newSelectedCardIndex, bool newIsHighlighted)
+    {
+        LiarsBarNetworkManager.singleton.HighlightCardForPlayer(newPlayerIndex, newSelectedCardIndex, newIsHighlighted);
+    }
+
+    [TargetRpc]
+    public void TargetMeHighlightCard(GameObject myHighlightedCard, Color newCardColor)
+    {
+        myHighlightedCard.GetComponentInChildren<SpriteRenderer>().color = newCardColor;
+    }
+
+    [Command]
+    private void CommandDeleteCard(int newPlayerIndex, int newSelectedCardIndex)
+    {
+        LiarsBarNetworkManager.singleton.DeleteCardForPlayer(newPlayerIndex, newSelectedCardIndex);
+    }
+
+    [TargetRpc]
+    public void TargetMeDeleteCard(GameObject myDeletedCard)
+    {
+        Destroy(myDeletedCard);
+    }
+
+    [Command]
+    private void CommandUpdateTable(int newPlayerIndex, int[] cardsToPlace)
+    {
+        LiarsBarNetworkManager.singleton.UpdateTable(newPlayerIndex, cardsToPlace);
+    }
+
+    [Command]
+    private void CommandCallLiar()
+    {
+        LiarsBarNetworkManager.singleton.CallLiar();
+    }
+
+    [ClientRpc]
+    public void TargetAllUpdateAnnouncement(GameObject newAnnouncementBoard, string newAnnouncementText)
+    {
+        newAnnouncementBoard.GetComponentInChildren<TextMeshPro>().text = newAnnouncementText;
     }
 
     #endregion
+
+
 
     [Command]
     private void CommandSetColor(Color newColor)
@@ -142,7 +382,7 @@ public class LiarsBarPlayer : NetworkBehaviour
     /// </summary>
     public override void OnStartClient() 
     {
-        CommandSetColor(GameObject.FindFirstObjectByType<PlayerInfo>().color);
+        //CommandSetColor(GameObject.FindFirstObjectByType<PlayerInfo>().color);
     }
 
     /// <summary>
