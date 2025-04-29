@@ -6,6 +6,12 @@ public class InfoManager : MonoBehaviour
     public ServerInfo info;
     public TextMeshProUGUI playerText;
 
+    private void Start()
+    {
+        info.PlayerCapacity = 2;
+        playerText.text = info.PlayerCapacity.ToString();
+    }
+
     public void ChangeServerName(string newName)
     {
         info.Name = newName;
@@ -36,6 +42,7 @@ public class InfoManager : MonoBehaviour
         if(info.Name != string.Empty)
         {
             Debug.Log("Start Server!!");
+            NLSNetworkManager.singleton.StartHost();
             gameObject.SetActive(false);
         }
         else
