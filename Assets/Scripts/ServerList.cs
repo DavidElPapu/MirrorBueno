@@ -2,6 +2,7 @@ using NUnit.Framework;
 using UnityEngine;
 using System.Collections.Generic;
 using System.Collections;
+using UnityEngine.UI;
 
 public class ServerList : MonoBehaviour
 {
@@ -62,7 +63,66 @@ public class ServerList : MonoBehaviour
             if (www.responseCode == 200)
             {
                 NodeListServerResponse response = JsonUtility.FromJson<NodeListServerResponse>(www.downloadHandler.text.Trim());
+                if (response != null) 
+                {
+                    listServerEntries = response.servers;
+
+                    BalancePrefabs(listServerEntries.Count, transform);
+                    UpdateListElements();
+                }
             }
+            isBusy = false;
+        }
+        yield break;
+    }
+
+    public void BalancePrefabs(int amount, Transform parent)
+    {
+        for (int i = parent.childCount; i < amount; i++)
+        {
+            if (listElementPrefab != null) 
+            {
+                Instantiate(listElementPrefab, parent);
+            }
+
+
+        }
+        for (int i = parent.childCount; i >= amount; i--)
+        {
+            Destroy(parent.GetChild(i).gameObject);
+        }
+    }
+
+    public void UpdateListElements()
+    {
+        for (int i = 0; i < listServerEntries.Count; i++)
+        {
+            if (i > transform.childCount || transform.GetChild(i) == null) 
+            {
+                continue;
+            }
+
+            ServerItem listItemUI = transform.GetChild(i).GetComponent<ServerItem>();
+
+            string modifiedAddress = string.Empty;
+            if (listServerEntries[i].ip.StartsWith("::ffff:"))
+            {
+                modifiedAddress = listServerEntries[i].ip.Replace("::ffff:", string.Empty);
+            }
+            else
+            {
+                modifiedAddress = listServerEntries[i].ip;
+            }
+
+            listItemUI.SetServerLabel(listServerEntries[i].name, listServerEntries[i].ip);
+
+            Button joinButton = listItemUI.GetJoinButton();
+            joinButton.onClick.RemoveAllListeners();
+            joinButton.onClick.AddListener(() => 
+            {
+                NLSNetworkManager.singleton.networkAddress = modifiedAddress;
+                NLSNetworkManager.singleton.StartClient();
+            });
         }
     }
 }
