@@ -33,7 +33,7 @@ public class ServerList : MonoBehaviour
 
         if (string.IsNullOrEmpty(communicationKey))
         {
-            enabled = true;
+            enabled = false;
         }
     }
 
@@ -82,12 +82,13 @@ public class ServerList : MonoBehaviour
         {
             if (listElementPrefab != null) 
             {
-                Instantiate(listElementPrefab, parent);
+                RectTransform rectTransform = Instantiate(listElementPrefab, parent, false).GetComponent<RectTransform>();
+                rectTransform.anchoredPosition = new Vector2(0, -1 * 65);
             }
 
 
         }
-        for (int i = parent.childCount; i >= amount; i--)
+        for (int i = parent.childCount - 1; i >= amount; i--) 
         {
             Destroy(parent.GetChild(i).gameObject);
         }
@@ -97,7 +98,7 @@ public class ServerList : MonoBehaviour
     {
         for (int i = 0; i < listServerEntries.Count; i++)
         {
-            if (i > transform.childCount || transform.GetChild(i) == null) 
+            if (i >= transform.childCount || transform.GetChild(i) == null) 
             {
                 continue;
             }
